@@ -1,116 +1,178 @@
 # Voicemeeter Remote
 
-Voicemeeter Remote is a standalone Windows tray application for the existing
-Voicemeeter Remote DLL. It preserves the original React/MUI remote: eight
-strips with gain, mute and A1–B3 routing controls; eight collapsible master
-buses; live WebSocket state; Sync; and Restart Audio Engine.
+Control Voicemeeter from your phone, tablet, or Windows desktop over your local
+network. Voicemeeter Remote lives in the Windows system tray and provides the
+connection link and QR code needed to pair another device.
 
-## Architecture
+No separate Node.js installation is required. The Windows installer includes
+its own private runtime and all required components.
 
-- `ui/` is the extracted original remote page, built with React, Vite and MUI
-  5. The only behavior change is that it now uses the same-origin WebSocket
-  (`/ws`) instead of a hard-coded LAN address.
-- `server/` is the single Express/WebSocket backend. It calls the existing,
-  installed `VoicemeeterRemote64.dll` through Koffi; it does not copy, modify,
-  or redistribute Voicemeeter.
-- `src-tauri/` owns the process lifecycle, a lazy desktop WebView, a tray
-  menu, autostart, and the packaged Node sidecar.
+## Features
 
-Production serves both the browser UI and WebSocket from one server on port
-`5164` by default. Vite is never used in a release build.
+- Control eight Voicemeeter strips and eight output buses.
+- Adjust gain, mute channels, and toggle A1–A5/B1–B3 routing.
+- Live synchronization between Voicemeeter and every connected remote.
+- First-run Connection Hub with the current PC address, complete pairing URL,
+  and a scannable QR code.
+- Automatic port selection that remains stable between launches and changes
+  only when the saved port is unavailable.
+- Multiple-network-interface support for PCs with both Wi-Fi and Ethernet.
+- Optional Start with Windows mode that stays quietly in the system tray.
+- Phone home-screen installation/shortcut using the desktop application icon.
+- Pairing-token protection for devices connecting over the network.
 
 ## Requirements
 
-- Windows 11 x64
-- Voicemeeter installed in one of its standard locations (including
-  `VoicemeeterRemote64.dll`)
-- WebView2 Runtime (normally included with Windows 11)
-- Node.js 22+ and Rust 1.84+ only for development/building
+- Windows 11 x64 (Windows 10 x64 may also work but is not currently tested).
+- [Voicemeeter](https://vb-audio.com/Voicemeeter/) installed and running.
+- A phone and PC connected to the same local network for phone access.
+- Microsoft Edge WebView2 Runtime, included with current Windows versions.
 
-## Development
+Node.js, Rust, and development tools are **not** required to install or use the
+application.
 
-```powershell
-npm install
-npm run dev:server       # backend only
-npm run dev:ui           # Vite UI only
-npm run dev              # Tauri desktop development
-npm run verify           # UI build plus backend protocol tests
-npm run build            # packages Node sidecar then builds the NSIS installer
-npm run verify:installed -- --host <Windows-LAN-IP> # checks a running installed release
-```
+## Install
 
-`npm run package:sidecar` copies the current Windows x64 Node executable to
-the Tauri external-binary location and installs only the server's production
-dependencies beside `server.js`. This keeps Koffi and its native `.node`
-binary on disk, which is required by Node native-module loading. The release
-installer therefore has no dependency on a system Node/Yarn install.
+1. Open the repository's [latest release](https://github.com/HIR666/voicemeeter-remote-tauri-native-nodejs/releases/latest).
+2. Download **Voicemeeter Remote_1.1.0_x64-setup.exe** from the release assets.
+3. Run the installer, then launch **Voicemeeter Remote**.
+4. If Windows Firewall asks, allow access on **Private networks** only.
 
-The installer explicitly maps `server/` and `ui/dist/` into the installation
-directory. Keep these destinations aligned with the release launcher; an
-implicit parent-directory resource path is installed under `_up_/` instead.
-After installing and starting a release, `verify:installed` checks its actual
-files, HTTP assets, DLL connection, authenticated WebSocket hydration and LAN
-token rejection. The verifier sends no audio-changing commands and launches
-no extra backend process.
+The installer is currently unsigned, so Microsoft Defender SmartScreen may
+display an unrecognized-app warning. If you downloaded it from this repository,
+choose **More info** and then **Run anyway**.
 
-## Install and use
+For a private GitHub repository, only collaborators who can access the
+repository can see or download its releases.
 
-Run the generated NSIS installer. On launch the app starts hidden, creates a
-tray icon, starts the managed backend, and serves the remote. Select **Open
-Remote** to create/focus the desktop window; closing that window hides it and
-leaves phone access and the backend running.
+## Connect your phone
 
-The tray menu provides Open Web UI, Restart Audio Engine, Restart Server,
-Start with Windows, and Quit. Autostart is opt-in and the checked state is the
-real Windows registration state. Quit owns a graceful sidecar stop before
-exiting.
+On the first normal launch, the **Connection Hub** opens automatically:
 
-## Phone access and LAN security
+1. Confirm the phone and PC are connected to the same Wi-Fi/local network.
+2. Scan the QR code with the phone's camera.
+3. Open the detected link in Chrome, Safari, or your preferred browser.
+4. Wait for the page to show **Connected** and **Synced**.
 
-The default local address is `http://<Windows-LAN-IP>:5164`. LAN browser
-clients need the one-time pairing token in the locally stored settings file:
+The hub can always be reopened by right-clicking the tray icon and selecting
+**Connection Hub**. Use this after changing Wi-Fi networks or whenever the PC's
+local IP address changes.
 
-```text
-http://<Windows-LAN-IP>:5164/?token=<authToken from settings.json>
-```
+The pairing link contains a private token. Anyone with that link and access to
+the same network can control Voicemeeter, so do not post it publicly.
 
-Loopback access from the tray/desktop is trusted; non-loopback WebSocket and
-administrative requests require the token. Commands are schema-validated,
-WebSocket origin/host checks are enforced, no wildcard CORS policy is used,
-and the service binds only to LAN interfaces (never creates public internet
-exposure). Keep the pairing URL private.
+## Add it to your phone's home screen
 
-Settings are in Tauri's Windows application-data directory, normally under
-`%APPDATA%\com.rat.voicemeeter-remote\settings.json`; `server.log` is next to
-it. The configuration supports `port`, `lanAccess`, `allowedInterfaces`, and
-`authToken`. Change the port only while the app is stopped, then restart it.
-Setting `lanAccess` to `false` binds to loopback only.
+Open the remote page and select **Install / Add shortcut**.
 
-If Windows Firewall prompts for access, allow **Private networks only** for
-the application and port 5164. Do not add a public-network or broad inbound
-rule.
+- **Android/Chrome:** accept the installation prompt when available. Otherwise,
+  open the browser menu and choose **Add to Home screen**.
+- **iPhone/iPad:** tap **Share**, then **Add to Home Screen**.
+
+Private LAN pages normally use HTTP rather than HTTPS. Depending on the mobile
+browser, this may create a home-screen shortcut instead of a fully installed
+offline web app. Both provide the same remote controls and application icon.
+
+## Tray menu
+
+Closing a window does not stop phone access. The application continues running
+in the Windows notification area.
+
+| Menu item | Purpose |
+| --- | --- |
+| **Connection Hub** | Show the current phone URL and QR code. |
+| **Open Remote** | Open the mixer controls in the Windows application. |
+| **Open Web UI** | Open the controls in the default PC browser. |
+| **Restart Audio Engine** | Ask Voicemeeter to restart its audio engine. |
+| **Restart Server** | Restart the local remote-control service. |
+| **Start with Windows** | Toggle silent startup at Windows sign-in. |
+| **Quit** | Stop the server and completely exit the application. |
 
 ## Troubleshooting
 
-- If the UI says disconnected, check that Voicemeeter itself is running and
-  inspect `server.log` and `startup.log` beside `settings.json`. Early Node
-  failures (such as a missing server entry point) are retained in `startup.log`.
-  The server stays alive and retries every 15 seconds
-  when Voicemeeter is not ready at Windows sign-in.
-- If port 5164 is occupied, the backend logs a diagnostic and does not stop
-  the unrelated process. Choose an unused `port` in `settings.json`.
-- If controls do not respond, use tray **Restart Audio Engine**, then Sync.
-- Uninstall with Windows Settings > Installed apps. Disable Start with
-  Windows first if Windows retains a stale entry after a forceful uninstall.
+### The page opens but says Disconnected / Not synced
 
-## Migration inventory
+- Reopen **Connection Hub** and scan its current QR code. An old browser tab may
+  still contain a previous pairing token or address.
+- Confirm Voicemeeter is running on the PC.
+- Make sure the phone is not using mobile data, a guest Wi-Fi network, or a VPN
+  that isolates it from the PC.
+- Close old remote tabs before opening a newly generated link.
 
-Migrated from the read-only references:
+### The phone cannot open the page
 
-- the `VoicemeeterRemote` React/MUI screen and Discord/Spotify icon assets;
-- strip/bus schema, gain/mute/routing message contracts, hydrated state and
-  audio-engine restart command;
-- Koffi DLL integration paths and `VBVMR_*` function signatures.
+- Confirm both devices are on the same local network.
+- Allow Voicemeeter Remote through Windows Firewall on **Private networks**.
+- Reopen Connection Hub after switching between Ethernet and Wi-Fi and select
+  the appropriate interface if more than one is listed.
+- Some routers isolate guest-network devices; use the primary home network.
 
-The original `vm-phone-remote` and `ratilities` directories are never needed
-at runtime and were not modified.
+### The controls open but do not affect Voicemeeter
+
+- Use **Restart Audio Engine** from the tray.
+- If that does not help, restart Voicemeeter and select **Sync** in the remote.
+- Use **Restart Server** as a final quick recovery step.
+
+### Logs
+
+Diagnostic files are stored in:
+
+```text
+%APPDATA%\com.rat.voicemeeter-remote\server.log
+%APPDATA%\com.rat.voicemeeter-remote\startup.log
+```
+
+The same folder contains `settings.json`. Setting its `port` value to `0` while
+the application is fully stopped requests a new automatic port on the next
+launch.
+
+## Updating or uninstalling
+
+To update, download and run the newer installer. Existing pairing settings are
+retained when possible. Reopen Connection Hub if the network address or port
+changes.
+
+To uninstall, open **Windows Settings → Apps → Installed apps**, find
+**Voicemeeter Remote**, and select **Uninstall**. Quitting the application first
+avoids files being in use.
+
+## Privacy and network access
+
+- The server listens only on the PC and its local network; this project does not
+  provide public internet access or a cloud relay.
+- Network clients require the pairing token shown in Connection Hub.
+- Administrative connection details are available only from the local PC.
+- Commands are validated before being sent to Voicemeeter.
+- No analytics or telemetry are included.
+
+## Building from source
+
+This section is for contributors. End users should use the release installer.
+
+### Development requirements
+
+- Node.js 22 or newer
+- Rust 1.84 or newer
+- Windows x64 with Voicemeeter installed
+
+```powershell
+npm install
+npm run dev              # Tauri desktop development build
+npm run dev:server       # backend only
+npm run dev:ui           # browser UI only
+npm run verify           # UI build and backend tests
+npm run build            # create the NSIS installer
+```
+
+The release packages a private Node runtime as `vmr-node.exe`, the backend and
+its production dependencies, native Koffi bindings, and the built web UI. The
+installed application does not depend on a system-wide Node.js installation.
+
+The generated installer is written to:
+
+```text
+src-tauri\target\release\bundle\nsis\
+```
+
+The read-only `vm-phone-remote` and `ratilities` migration references are not
+required at runtime and are not included in the installer.

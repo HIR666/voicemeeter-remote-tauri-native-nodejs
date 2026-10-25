@@ -26,11 +26,17 @@ const configDir = option("--config-dir") || process.env.VMR_CONFIG_DIR || path.j
 const resourceDir = option("--resource-dir") || process.env.VMR_RESOURCE_DIR;
 const configPath = path.join(configDir, "settings.json");
 const defaultConfig = {
-  port: 5164,
+  // Port 0 asks Windows for an available port. The selected value is then
+  // persisted so phone shortcuts stay stable across normal restarts.
+  port: 0,
   lanAccess: true,
   allowedInterfaces: [],
   authToken: crypto.randomBytes(24).toString("base64url"),
 };
+
+function saveConfig(config) {
+  fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
+}
 
 function loadConfig() {
   fs.mkdirSync(configDir, { recursive: true });
@@ -39,10 +45,10 @@ function loadConfig() {
     if (error.code !== "ENOENT") console.warn("[CONFIG] Using defaults:", error.message);
   }
   const config = { ...defaultConfig, ...saved };
-  config.port = Number.isInteger(Number(config.port)) && Number(config.port) > 0 && Number(config.port) < 65536 ? Number(config.port) : 5164;
+  config.port = Number.isInteger(Number(config.port)) && Number(config.port) >= 0 && Number(config.port) < 65536 ? Number(config.port) : 0;
   config.lanAccess = Boolean(config.lanAccess);
   config.authToken = typeof config.authToken === "string" && config.authToken.length >= 24 ? config.authToken : defaultConfig.authToken;
-  fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o600 });
+  saveConfig(config);
   return config;
 }
 
@@ -70,6 +76,23 @@ function localAddresses() {
     for (const item of interfaces || []) values.add(item.address);
   }
   return values;
+}
+
+function lanInterfaces() {
+  const values = [];
+  const seen = new Set();
+  for (const [name, interfaces] of Object.entries(os.networkInterfaces())) {
+    for (const item of interfaces || []) {
+      const ipv4 = item.family === "IPv4" || item.family === 4;
+      if (!ipv4 || item.internal || item.address.startsWith("169.254.") || seen.has(item.address)) continue;
+      seen.add(item.address);
+      values.push({ name, address: item.address });
+    }
+  }
+  const isPrivate = (address) => address.startsWith("10.") || address.startsWith("192.168.")
+    || /^172\.(1[6-9]|2\d|3[01])\./.test(address);
+  return values.sort((left, right) => Number(isPrivate(right.address)) - Number(isPrivate(left.address))
+    || left.name.localeCompare(right.name));
 }
 
 function remoteAddress(request) {
@@ -179,7 +202,13 @@ async function readState() {
 }
 
 const server = app.listen(config.port, config.lanAccess ? "0.0.0.0" : "127.0.0.1", () => {
-  console.log(`[HTTP] Listening on ${config.lanAccess ? "LAN" : "loopback"} port ${config.port}`);
+  const address = server.address();
+  const selectedPort = typeof address === "object" && address ? address.port : config.port;
+  if (config.port !== selectedPort) {
+    config.port = selectedPort;
+    saveConfig(config);
+  }
+  console.log(`[HTTP] Listening on ${config.lanAccess ? "LAN" : "loopback"} port ${selectedPort}`);
   console.log(`[HTTP] UI directory: ${uiDir}`);
 });
 server.on("error", (error) => {
@@ -257,6 +286,19 @@ server.on("upgrade", (request, socket, head) => {
 });
 
 app.get("/api/health", (request, response) => response.json({ running: true, connected, port: config.port }));
+app.get("/api/connection-info", (request, response) => {
+  if (!isLoopback(request)) return response.status(403).json({ error: "Connection details are only available on this PC." });
+  const interfaces = lanInterfaces();
+  const urls = interfaces.map(({ address }) => `http://${address}:${config.port}/?token=${encodeURIComponent(config.authToken)}`);
+  response.set("Cache-Control", "no-store").json({
+    computerName: os.hostname(),
+    port: config.port,
+    interfaces,
+    urls,
+    primaryUrl: urls[0] || "",
+    connected,
+  });
+});
 app.get("/api/status", requireAuth, (request, response) => response.json({ running: true, connected, port: config.port, lanAccess: config.lanAccess }));
 app.post("/api/restart-audio", requireAuth, async (_request, response) => {
   try { await restartAudioEngine(); await broadcastState("after audio engine restart"); response.status(204).end(); }

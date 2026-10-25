@@ -64,7 +64,22 @@ async function main() {
   const javascript = await get(new URL(asset[1], base));
   assert.equal(javascript.status, 200);
   assert.ok(!javascript.body.trimStart().startsWith("<!"), "JavaScript URL returned an HTML fallback.");
-  console.log("PASS installed resource paths, HTTP page/assets, and Voicemeeter DLL connection");
+  const manifest = await get(new URL("/manifest.webmanifest", base));
+  assert.equal(manifest.status, 200);
+  const manifestJson = JSON.parse(manifest.body);
+  assert.equal(manifestJson.name, "Voicemeeter Remote");
+  for (const icon of ["/icons/icon-192.png", "/icons/icon-512.png"]) {
+    assert.equal((await get(new URL(icon, base))).status, 200, `Missing install icon: ${icon}`);
+  }
+  const connectionInfo = await get(new URL(`http://127.0.0.1:${config.port}/api/connection-info`));
+  assert.equal(connectionInfo.status, 200);
+  const details = JSON.parse(connectionInfo.body);
+  assert.equal(details.port, config.port);
+  assert.ok(details.urls.every((url) => url.includes(`token=${config.authToken}`)), "Hub URLs do not contain the active token.");
+  if (!["127.0.0.1", "localhost", "[::1]"].includes(host)) {
+    assert.ok(details.urls.includes(`http://${host}:${config.port}/?token=${config.authToken}`), "Hub did not discover the tested LAN address.");
+  }
+  console.log("PASS installed resources, connection hub URLs, PWA assets, and Voicemeeter DLL connection");
 
   const socketUrl = new URL(`/ws?token=${encodeURIComponent(config.authToken)}`, base);
   socketUrl.protocol = "ws:";

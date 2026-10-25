@@ -1,7 +1,7 @@
 {
   "name": "voicemeeter-remote",
   "private": true,
-  "version": "1.0.2",
+  "version": "1.1.0",
   "description": "Standalone Voicemeeter Remote Windows tray application",
   "workspaces": ["ui", "server"],
   "scripts": {

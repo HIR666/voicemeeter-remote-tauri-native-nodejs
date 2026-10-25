@@ -13,6 +13,10 @@ import {
   Tooltip,
   Collapse,
   Divider,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
 } from "@mui/material";
 import PianoIcon from "@mui/icons-material/Piano";
 import MusicNoteIcon from "@mui/icons-material/MusicNote";
@@ -25,6 +29,7 @@ import ExpandLessIcon from "@mui/icons-material/ExpandLess";
 import VolumeUpIcon from "@mui/icons-material/VolumeUp";
 import VolumeOffIcon from "@mui/icons-material/VolumeOff";
 import RestartAltIcon from "@mui/icons-material/RestartAlt";
+import InstallMobileIcon from "@mui/icons-material/InstallMobile";
 import DiscordIcon from "./assets/DiscordIcon";
 import SpotifyIcon from "./assets/SpotifyIcon";
 
@@ -105,6 +110,11 @@ export default function VoicemeeterRemote() {
   const [localGains, setLocalGains] = useState({});
   const [localBusGains, setLocalBusGains] = useState({});
   const [mastersOpen, setMastersOpen] = useState(false);
+  const [installPrompt, setInstallPrompt] = useState(null);
+  const [installHelpOpen, setInstallHelpOpen] = useState(false);
+  const [installed, setInstalled] = useState(
+    window.matchMedia?.("(display-mode: standalone)").matches || window.navigator.standalone === true,
+  );
 
   const stripsByIndex = useMemo(() => {
     const mapped = {};
@@ -121,6 +131,23 @@ export default function VoicemeeterRemote() {
     });
     return mapped;
   }, [buses]);
+
+  useEffect(() => {
+    const offerInstall = (event) => {
+      event.preventDefault();
+      setInstallPrompt(event);
+    };
+    const markInstalled = () => {
+      setInstalled(true);
+      setInstallPrompt(null);
+    };
+    window.addEventListener("beforeinstallprompt", offerInstall);
+    window.addEventListener("appinstalled", markInstalled);
+    return () => {
+      window.removeEventListener("beforeinstallprompt", offerInstall);
+      window.removeEventListener("appinstalled", markInstalled);
+    };
+  }, []);
 
   useEffect(() => {
     let disposed = false;
@@ -226,6 +253,16 @@ export default function VoicemeeterRemote() {
     if (!sent) {
       setRestartingEngine(false);
     }
+  };
+
+  const handleInstall = async () => {
+    if (!installPrompt) {
+      setInstallHelpOpen(true);
+      return;
+    }
+    await installPrompt.prompt();
+    await installPrompt.userChoice;
+    setInstallPrompt(null);
   };
 
   const patchLocalStrip = (stripIndex, param, value) => {
@@ -449,7 +486,43 @@ export default function VoicemeeterRemote() {
             </IconButton>
           </span>
         </Tooltip>
+
+        {!installed && (
+          <Button
+            size="small"
+            variant="outlined"
+            startIcon={<InstallMobileIcon />}
+            onClick={handleInstall}
+            sx={{
+              color: "rgba(255,255,255,0.85)",
+              borderColor: "rgba(255,255,255,0.25)",
+              textTransform: "none",
+            }}
+          >
+            Install / Add shortcut
+          </Button>
+        )}
       </Stack>
+
+      <Dialog open={installHelpOpen} onClose={() => setInstallHelpOpen(false)}>
+        <DialogTitle>Add Voicemeeter Remote to your phone</DialogTitle>
+        <DialogContent>
+          <Typography paragraph>
+            In Chrome, open the browser menu and choose <strong>Add to Home screen</strong> or <strong>Install app</strong>.
+          </Typography>
+          <Typography paragraph>
+            On iPhone or iPad, tap <strong>Share</strong>, then <strong>Add to Home Screen</strong>.
+          </Typography>
+          {!window.isSecureContext && (
+            <Typography variant="body2" color="text.secondary">
+              This page uses a private LAN HTTP address, so some browsers offer a home-screen shortcut instead of a full offline installation. Both open with the same app icon and standalone-style launch.
+            </Typography>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setInstallHelpOpen(false)}>Done</Button>
+        </DialogActions>
+      </Dialog>
 
       <Grid container spacing={1}>
         {STRIP_CONFIG.map((config) => {
