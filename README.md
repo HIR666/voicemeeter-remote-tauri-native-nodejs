@@ -36,6 +36,7 @@ npm run dev:ui           # Vite UI only
 npm run dev              # Tauri desktop development
 npm run verify           # UI build plus backend protocol tests
 npm run build            # packages Node sidecar then builds the NSIS installer
+npm run verify:installed -- --host <Windows-LAN-IP> # checks a running installed release
 ```
 
 `npm run package:sidecar` copies the current Windows x64 Node executable to
@@ -43,6 +44,14 @@ the Tauri external-binary location and installs only the server's production
 dependencies beside `server.js`. This keeps Koffi and its native `.node`
 binary on disk, which is required by Node native-module loading. The release
 installer therefore has no dependency on a system Node/Yarn install.
+
+The installer explicitly maps `server/` and `ui/dist/` into the installation
+directory. Keep these destinations aligned with the release launcher; an
+implicit parent-directory resource path is installed under `_up_/` instead.
+After installing and starting a release, `verify:installed` checks its actual
+files, HTTP assets, DLL connection, authenticated WebSocket hydration and LAN
+token rejection. The verifier sends no audio-changing commands and launches
+no extra backend process.
 
 ## Install and use
 
@@ -84,7 +93,9 @@ rule.
 ## Troubleshooting
 
 - If the UI says disconnected, check that Voicemeeter itself is running and
-  inspect `server.log`. The server stays alive and retries every 15 seconds
+  inspect `server.log` and `startup.log` beside `settings.json`. Early Node
+  failures (such as a missing server entry point) are retained in `startup.log`.
+  The server stays alive and retries every 15 seconds
   when Voicemeeter is not ready at Windows sign-in.
 - If port 5164 is occupied, the backend logs a diagnostic and does not stop
   the unrelated process. Choose an unused `port` in `settings.json`.

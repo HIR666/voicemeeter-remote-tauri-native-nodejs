@@ -231,9 +231,28 @@ wss.on("connection", (socket) => {
 server.on("upgrade", (request, socket, head) => {
   const url = new URL(request.url, `http://${request.headers.host || "localhost"}`);
   if (url.pathname !== "/ws") return socket.destroy();
-  try { if (!authorized(request, url)) return socket.destroy(); } catch { return socket.destroy(); }
+  const suppliedToken = String(url.searchParams.get("token") || request.headers["x-vmr-token"] || "");
+  try {
+    if (!authorized(request, url)) {
+      console.warn(`[WS] Rejected upgrade from ${remoteAddress(request)}: token ${suppliedToken ? `present (${suppliedToken.length} chars) but invalid` : "missing"}; origin=${request.headers.origin || "<none>"}; host=${request.headers.host || "<none>"}`);
+      return socket.destroy();
+    }
+  } catch {
+    console.warn(`[WS] Rejected upgrade from ${remoteAddress(request)}: token length mismatch; origin=${request.headers.origin || "<none>"}; host=${request.headers.host || "<none>"}`);
+    return socket.destroy();
+  }
+
   const origin = request.headers.origin;
-  if (origin && !origin.startsWith("http://localhost:") && !origin.startsWith("http://127.0.0.1:") && !origin.startsWith(`http://${request.headers.host}`)) return socket.destroy();
+  const expectedOrigins = new Set([
+    `http://${request.headers.host}`,
+    `https://${request.headers.host}`,
+  ]);
+  if (!isLoopback(request) && origin && !expectedOrigins.has(origin)) {
+    // Some mobile in-app browsers use an opaque or embedding-app Origin even
+    // after navigating to a LAN URL. The unguessable pairing token remains the
+    // authorization boundary, so a nonstandard Origin is diagnostic, not fatal.
+    console.warn(`[WS] Authenticated upgrade from ${remoteAddress(request)} with nonstandard origin=${origin}; host=${request.headers.host || "<none>"}`);
+  }
   wss.handleUpgrade(request, socket, head, (websocket) => wss.emit("connection", websocket, request));
 });
 

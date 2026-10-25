@@ -30,12 +30,24 @@ import SpotifyIcon from "./assets/SpotifyIcon";
 
 // Same-origin in production keeps desktop and LAN clients on one authenticated
 // endpoint. Vite can override this for backend-only development.
+const TOKEN_STORAGE_KEY = "vmr-pairing-token";
+
+function pairingToken() {
+  const queryToken = new URLSearchParams(window.location.search).get("token");
+  if (queryToken) {
+    try { window.localStorage.setItem(TOKEN_STORAGE_KEY, queryToken); } catch { /* storage may be disabled */ }
+    return queryToken;
+  }
+
+  try { return window.localStorage.getItem(TOKEN_STORAGE_KEY) || ""; } catch { return ""; }
+}
+
 const wsUrl = () => {
   if (import.meta.env.VITE_VM_REMOTE_WS_URL) {
     return import.meta.env.VITE_VM_REMOTE_WS_URL;
   }
 
-  const token = new URLSearchParams(window.location.search).get("token");
+  const token = pairingToken();
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   const url = new URL(`${protocol}//${window.location.host}/ws`);
   if (token) url.searchParams.set("token", token);

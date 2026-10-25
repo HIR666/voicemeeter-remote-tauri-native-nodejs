@@ -5,9 +5,12 @@ use std::{
     io::{Read, Write},
     net::{SocketAddr, TcpStream},
     path::PathBuf,
+    process::{Child, Command, Stdio},
     sync::{atomic::{AtomicBool, Ordering}, Mutex},
     time::Duration,
 };
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 
 use tauri::{
     menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem},
@@ -16,10 +19,9 @@ use tauri::{
 };
 use tauri_plugin_autostart::ManagerExt as AutostartManagerExt;
 use tauri_plugin_opener::OpenerExt;
-use tauri_plugin_shell::{process::CommandChild, ShellExt};
 
 struct BackendState {
-    child: Mutex<Option<CommandChild>>,
+    child: Mutex<Option<Child>>,
     quitting: AtomicBool,
 }
 
@@ -40,49 +42,100 @@ fn backend_port(app: &tauri::AppHandle) -> u16 {
         .unwrap_or(5164)
 }
 
-fn wait_for_backend(port: u16) -> bool {
+fn wait_for_backend(child: &mut Child, port: u16) -> Result<(), String> {
     let address: SocketAddr = format!("127.0.0.1:{port}").parse().expect("valid loopback address");
-    for _ in 0..30 {
-        if TcpStream::connect_timeout(&address, Duration::from_millis(100)).is_ok() { return true; }
+    for _ in 0..100 {
+        if let Some(status) = child.try_wait().map_err(|error| error.to_string())? {
+            return Err(format!("Backend exited with {status}. See startup.log in the app data folder."));
+        }
+        if TcpStream::connect_timeout(&address, Duration::from_millis(100)).is_ok() { return Ok(()); }
         std::thread::sleep(Duration::from_millis(100));
     }
-    false
+    Err(format!("Backend did not become ready on port {port}. See startup.log in the app data folder."))
+}
+
+fn record_startup_error(app: &tauri::AppHandle, message: &str) {
+    if let Ok(directory) = config_dir(app) {
+        let path = directory.join("startup.log");
+        let line = format!("[STARTUP] {message}\n");
+        let _ = fs::OpenOptions::new().create(true).append(true).open(path)
+            .and_then(|mut file| file.write_all(line.as_bytes()));
+    }
 }
 
 fn start_backend(app: &tauri::AppHandle) -> Result<(), String> {
     let state = app.state::<BackendState>();
-    if state.child.lock().map_err(|_| "Backend lock was poisoned.")?.is_some() { return Ok(()); }
+    let mut owned_child = state.child.lock().map_err(|_| "Backend lock was poisoned.")?;
+    if let Some(child) = owned_child.as_mut() {
+        if child.try_wait().map_err(|error| error.to_string())?.is_none() { return Ok(()); }
+        *owned_child = None;
+    }
 
     let data_dir = config_dir(app)?;
     let port = backend_port(app);
-    let mut command = if cfg!(debug_assertions) {
-        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf();
-        app.shell().command("node").args([root.join("server/server.js").to_string_lossy().to_string()])
-    } else {
-        let resources = app.path().resource_dir().map_err(|error| error.to_string())?;
-        app.shell().sidecar("vmr-node")
-            .map_err(|error| error.to_string())?
-            .args([resources.join("server/server.js").to_string_lossy().to_string()])
-    };
-
     let resource_dir = if cfg!(debug_assertions) {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf()
     } else {
         app.path().resource_dir().map_err(|error| error.to_string())?
     };
-    command = command.args([
-        "--config-dir".into(), data_dir.to_string_lossy().to_string(),
-        "--resource-dir".into(), resource_dir.to_string_lossy().to_string(),
-    ]);
-    let (mut receiver, child) = command.spawn().map_err(|error| format!("Could not launch the managed backend: {error}"))?;
-    *state.child.lock().map_err(|_| "Backend lock was poisoned.")? = Some(child);
-    tauri::async_runtime::spawn(async move { while receiver.recv().await.is_some() {} });
-    if wait_for_backend(port) { Ok(()) } else { Err(format!("Backend did not become ready on port {port}. See server.log in the app data folder.")) }
+    let (program, script) = if cfg!(debug_assertions) {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).parent().unwrap().to_path_buf();
+        (PathBuf::from("node"), root.join("server/server.js"))
+    } else {
+        // The explicit bundle resource map installs server/ and ui/dist/
+        // beneath resource_dir; the Node executable is beside the app exe.
+        let executable_dir = std::env::current_exe()
+            .map_err(|error| error.to_string())?
+            .parent()
+            .map(PathBuf::from)
+            .ok_or("The application executable has no parent directory.")?;
+        let sidecar = executable_dir.join("vmr-node.exe");
+        if !sidecar.is_file() {
+            return Err(format!("Bundled Node runtime was not found at {}.", sidecar.display()));
+        }
+        (sidecar, resource_dir.join("server/server.js"))
+    };
+
+    if !script.is_file() {
+        return Err(format!("Bundled server entry point was not found at {}.", script.display()));
+    }
+    let ui_entry = resource_dir.join("ui/dist/index.html");
+    if !cfg!(debug_assertions) && !ui_entry.is_file() {
+        return Err(format!("Built UI was not found at {}.", ui_entry.display()));
+    }
+    // Retain failures before server.js can initialize its own server.log.
+    let startup_log = fs::OpenOptions::new().create(true).append(true)
+        .open(data_dir.join("startup.log")).map_err(|error| error.to_string())?;
+    let stderr_log = startup_log.try_clone().map_err(|error| error.to_string())?;
+    let mut command = Command::new(program);
+    command
+        .args([
+            script.to_string_lossy().to_string(),
+            "--config-dir".into(), data_dir.to_string_lossy().to_string(),
+            "--resource-dir".into(), resource_dir.to_string_lossy().to_string(),
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(startup_log))
+        .stderr(Stdio::from(stderr_log));
+    #[cfg(windows)]
+    command.creation_flags(0x08000000); // CREATE_NO_WINDOW: keep Node in the tray app's background.
+    let mut child = command.spawn()
+        .map_err(|error| format!("Could not launch the managed backend: {error}"))?;
+    if let Err(error) = wait_for_backend(&mut child, port) {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err(error);
+    }
+    *owned_child = Some(child);
+    Ok(())
 }
 
 fn stop_backend(app: &tauri::AppHandle) {
     if let Ok(mut guard) = app.state::<BackendState>().child.lock() {
-        if let Some(child) = guard.take() { let _ = child.kill(); }
+        if let Some(mut child) = guard.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
     }
 }
 
@@ -185,10 +238,36 @@ fn main() {
         }))
         .setup(|app| {
             let handle = app.handle().clone();
-            if let Err(error) = start_backend(&handle) { eprintln!("[VMR] {error}"); }
+            if let Err(error) = start_backend(&handle) {
+                record_startup_error(&handle, &error);
+                eprintln!("[VMR] {error}");
+            }
             tray(&handle)?;
             Ok(())
         })
         .run(tauri::generate_context!())
         .expect("error while running Voicemeeter Remote");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashMap;
+    use tauri_utils::resources::ResourcePaths;
+
+    #[test]
+    fn bundled_paths_match_the_release_launcher_and_server() {
+        let config: serde_json::Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        let mapping = config["bundle"]["resources"].as_object()
+            .expect("Use explicit source-to-destination resource paths.");
+        let paths: HashMap<String, String> = mapping.iter().map(|(source, target)| {
+            (source.to_owned(), target.as_str().unwrap().to_owned())
+        }).collect();
+        let targets: Vec<PathBuf> = ResourcePaths::from_map(&paths, true).iter()
+            .map(|resource| resource.unwrap().target().to_path_buf()).collect();
+        for required in ["server/server.js", "server/lib/protocol.cjs", "ui/dist/index.html",
+            "server/node_modules/koffi/build/koffi/win32_x64/koffi.node"] {
+            assert!(targets.contains(&PathBuf::from(required)), "Missing release resource destination: {required}");
+        }
+    }
 }
