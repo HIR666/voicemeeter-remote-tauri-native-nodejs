@@ -1,0 +1,23 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Voicemeeter Remote",
+  "version": "1.0.0",
+  "identifier": "com.rat.voicemeeter-remote",
+  "build": {
+    "beforeDevCommand": "npm run dev:ui",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "npm run build:ui",
+    "frontendDist": "../ui/dist"
+  },
+  "app": {
+    "windows": [],
+    "security": { "csp": null }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "externalBin": ["binaries/vmr-node"],
+    "resources": ["../server", "../ui/dist"],
+    "icon": ["icons/icon.ico"]
+  }
+}

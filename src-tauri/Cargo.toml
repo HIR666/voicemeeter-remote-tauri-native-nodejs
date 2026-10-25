@@ -1,0 +1,26 @@
+[package]
+name = "voicemeeter-remote"
+version = "1.0.0"
+description = "Voicemeeter Remote tray application"
+authors = ["Voicemeeter Remote"]
+edition = "2021"
+
+[build-dependencies]
+tauri-build = { version = "=2.0.6", features = [] }
+tauri-codegen = "=2.0.5"
+tauri-utils = "=2.2.0"
+
+[dependencies]
+tauri = { version = "=2.2.5", features = ["tray-icon"] }
+tauri-macros = "=2.0.4"
+tauri-runtime = "=2.3.0"
+tauri-runtime-wry = "=2.3.0"
+tauri-utils = "=2.2.0"
+tauri-plugin = "=2.0.0"
+tauri-plugin-autostart = "=2.2.0"
+tauri-plugin-opener = "=2.2.0"
+tauri-plugin-shell = "=2.2.0"
+tauri-plugin-single-instance = "=2.2.0"
+serde_json = "1"
+url = "2"
+

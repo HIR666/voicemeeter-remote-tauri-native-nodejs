@@ -1,0 +1,3 @@
+[resolver]
+# Keep Cargo 1.84 on the newest dependency versions it can compile.
+incompatible-rust-versions = "fallback"

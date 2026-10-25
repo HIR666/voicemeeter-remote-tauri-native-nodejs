@@ -1,0 +1,5 @@
+html, body, #root { min-height: 100%; margin: 0; background: #101014; }
+::-webkit-scrollbar { width: 8px; }
+::-webkit-scrollbar-track { background: #2c2c2c; }
+::-webkit-scrollbar-thumb { background-color: #003253; border-radius: 6px; border: 3px solid #2c2c2c; }
+* { scrollbar-width: thin; scrollbar-color: #424242 #2c2c2c; }

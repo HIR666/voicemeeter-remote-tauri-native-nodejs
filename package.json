@@ -1,0 +1,21 @@
+{
+  "name": "voicemeeter-remote",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Standalone Voicemeeter Remote Windows tray application",
+  "workspaces": ["ui", "server"],
+  "scripts": {
+    "install:all": "npm install",
+    "dev": "tauri dev",
+    "dev:ui": "npm run dev --workspace ui",
+    "dev:server": "npm run dev --workspace server",
+    "build:ui": "npm run build --workspace ui",
+    "package:sidecar": "node scripts/package-sidecar.cjs",
+    "verify": "npm run build:ui && npm run test --workspace server",
+    "build": "npm run package:sidecar && tauri build",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.11.0"
+  }
+}

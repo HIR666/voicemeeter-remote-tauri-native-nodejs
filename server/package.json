@@ -1,0 +1,17 @@
+{
+  "name": "voicemeeter-remote-server",
+  "private": true,
+  "version": "1.0.0",
+  "main": "server.js",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js",
+    "test": "node --test test/*.test.cjs"
+  },
+  "dependencies": {
+    "express": "^5.2.1",
+    "koffi": "^2.16.2",
+    "voicemeeter-remote": "file:..",
+    "ws": "^8.20.1"
+  }
+}
